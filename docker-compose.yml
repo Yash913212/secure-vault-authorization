@@ -1,0 +1,27 @@
+services:
+  blockchain:
+    image: ghcr.io/foundry-rs/foundry:stable
+    command: >
+      anvil --host 0.0.0.0 --port 8545
+      --chain-id 31337
+      --mnemonic "test test test test test test test test test test test junk"
+    ports:
+      - "8545:8545"
+
+  deployer:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    depends_on:
+      - blockchain
+    # Anvil in this image reports/binds to 127.0.0.1 inside the container in some environments.
+    # Share the blockchain network namespace so deployer can reach it via 127.0.0.1.
+    network_mode: "service:blockchain"
+    environment:
+      RPC_URL: http://127.0.0.1:8545
+      # First account for the mnemonic above (Hardhat/Anvil default):
+      PRIVATE_KEY: 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+      # The accepted signer for withdrawal permissions (defaults to deployer if omitted):
+      AUTH_SIGNER_ADDRESS: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    volumes:
+      - ./deployments:/app/deployments

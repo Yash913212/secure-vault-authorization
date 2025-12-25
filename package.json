@@ -1,0 +1,25 @@
+{
+    "name": "secure-vault-authorization",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Secure vault + authorization-manager split-contract system with one-time on-chain authorization consumption.",
+    "license": "MIT",
+    "scripts": {
+        "compile": "hardhat compile",
+        "test": "hardhat test",
+        "node": "hardhat node",
+        "deploy": "node scripts/deploy.js"
+    },
+    "devDependencies": {
+        "@nomicfoundation/hardhat-chai-matchers": "^2.0.8",
+        "@nomicfoundation/hardhat-ethers": "^3.0.8",
+        "chai": "^4.4.1",
+        "ethers": "^6.13.4",
+        "hardhat": "^2.22.16",
+        "mocha": "^10.7.3"
+    },
+    "dependencies": {
+        "@openzeppelin/contracts": "^5.1.0",
+        "dotenv": "^16.4.5"
+    }
+}
