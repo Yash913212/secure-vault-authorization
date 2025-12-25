@@ -1,34 +1,35 @@
-# Secure Vault Authorization (Vault + AuthorizationManager)
+Secure Vault Authorization
 
-This repository implements a **two-contract** architecture where:
+Two small contracts, one clear job each:
 
-- `SecureVault.sol` **holds and transfers funds**.
-- `AuthorizationManager.sol` **verifies and consumes** off-chain generated withdrawal permissions.
+-> `SecureVault.sol` holds ETH and performs withdrawals.
+-> `AuthorizationManager.sol` verifies (and permanently consumes) off-chain signed withdrawal approvals.
 
-The vault **does not** verify signatures. It delegates all permission validation to the authorization manager.
+Design choice: the vault **does not** recover signatures itself. It asks the authorization manager to validate permission.
 
-## Architecture & flow
+How it works (high level)
 
-1. Anyone deposits native currency into `SecureVault` (plain ETH transfers).
-2. Off-chain coordination produces a withdrawal authorization (EIP-712 typed data) signed by `authorizedSigner`.
-3. Anyone can submit the authorization to the vault via `SecureVault.withdraw(...)`.
+1. Anyone deposits ETH into `SecureVault` (a plain ETH transfer).
+2. Off-chain, an `authorizedSigner` signs an EIP-712 “withdrawal authorization”.
+3. Anyone can submit that signed authorization to the vault via `SecureVault.withdraw(...)`.
 4. The vault calls `AuthorizationManager.verifyAuthorization(...)`.
-5. The manager verifies:
-   - caller is the configured vault
-   - authorization is scoped to this **vault instance**
-   - signature is valid for this **network** (via EIP-712 domain `chainId`)
-   - authorization is **unused** (replay protection)
-6. On success, the vault updates accounting and transfers ETH.
+5. The manager checks:
+   - the caller really is the configured vault
+   - the authorization is for this vault instance
+   - the signature is valid on this chain (EIP-712 domain includes `chainId`)
+   - the authorization hasn’t been used before (replay protection)
+6. If everything checks out, the vault updates accounting and transfers ETH.
 
-## Security properties / invariants
+Security properties (what this protects)
 
-- **Single-use authorizations**: `AuthorizationManager` stores `consumed[authorizationId]` and consumes on success.
-- **Tight scoping**: signed data includes `(vault, recipient, amount, nonce)` and EIP-712 domain binds to `(chainId, verifyingContract=AuthorizationManager)`.
-- **Exactly-once accounting**: `SecureVault.accountedBalance` is decremented **before** value transfer.
-- **Vault-only consumption**: EOAs cannot call `verifyAuthorization` successfully.
-- **One-time initialization**: `AuthorizationManager.setVault(...)` can be called only once.
+- Single-use approvals: the manager stores `consumed[authorizationId]` and marks an authorization as used on success.
+- Scoped permissions: signed data includes `(vault, recipient, amount, nonce)`.
+- Chain-bound signatures: the EIP-712 domain binds to `(chainId, verifyingContract = AuthorizationManager)`.
+- Safer accounting: `SecureVault.accountedBalance` is decremented **before** the ETH transfer.
+- Vault-only consumption: EOAs can’t successfully call `verifyAuthorization` directly.
+- One-time initialization: `AuthorizationManager.setVault(...)` can only be called once.
 
-## Authorization format (EIP-712)
+What exactly gets signed (EIP-712)
 
 Domain:
 - `name`: `SecureVaultAuthorization`
@@ -40,46 +41,54 @@ Type:
 
 `WithdrawalAuthorization(address vault,address recipient,uint256 amount,bytes32 nonce)`
 
-This binds permissions to:
-- specific **vault instance** (`vault`)
-- specific **network** (`chainId`)
-- specific **recipient** (`recipient`)
-- specific **amount** (`amount`)
-- one-time uniqueness (`nonce`)
+This binds permission to:
+- a specific vault instance (`vault`)
+- a specific network (`chainId`)
+- a specific recipient (`recipient`)
+- a specific amount (`amount`)
+- a one-time uniqueness value (`nonce`)
 
-## Run locally with Docker
+Quickstart (Docker)
 
-Requirement: Docker + docker-compose.
+You’ll get a local chain (Anvil) plus an auto-deployer.
 
-1. Start chain + deployer:
+Requirement: Docker Desktop + Docker Compose.
 
-- `docker-compose up --build`
+1. Start everything:
 
-2. The deployer writes deployment output to `./deployments/deployment-31337.json` and logs it.
+- `docker compose up --build`
 
-RPC endpoint from host:
+2. Wait for the deployer to finish. You should see a “Deployed:” JSON blob and then:
+
+- `Wrote deployment artifact: /app/deployments/deployment-31337.json`
+
+3. On your host machine, the artifact will be available at:
+
+- `./deployments/deployment-31337.json`
+
+RPC endpoint from the host:
 - `http://127.0.0.1:8545`
 
-## Run tests (recommended)
+Run tests (recommended)
 
-From host (Node 18+ recommended):
+From the host machine:
 
 - `npm install`
-- `npx hardhat test`
+- `npm test`
 
-## Manual interaction notes
+Manual interaction notes
 
 - Deposit by sending ETH directly to the deployed `SecureVault` address.
-- Generate the EIP-712 signature off-chain using the **authorized signer** key.
+- Off-chain, generate the EIP-712 signature using the **authorized signer** private key.
 - Call `withdraw(recipient, amount, nonce, signature)` on the vault.
 
-The included tests (`tests/system.spec.js`) demonstrate:
-- successful withdrawal
+The included system tests (`tests/system.spec.js`) cover:
+- a successful withdrawal
 - replay prevention
 - rejection of mismatched parameters
 - rejection of direct manager calls by EOAs
 
-## Files of interest
+Where to look
 
 - `contracts/SecureVault.sol`
 - `contracts/AuthorizationManager.sol`
@@ -87,7 +96,8 @@ The included tests (`tests/system.spec.js`) demonstrate:
 - `docker-compose.yml`
 - `docker/Dockerfile`, `docker/entrypoint.sh`
 
-## Known limitations
+Known limitations / easy extensions
 
-- This is a minimal reference implementation (single `authorizedSigner`).
-- Authorization cancellation/expiry windows are not implemented (can be added by including `deadline` in typed data).
+- This is a minimal reference implementation (a single `authorizedSigner`).
+- Authorization cancellation/expiry windows are not implemented.
+   - Easy upgrade: add a `deadline` field to the typed data and enforce it in `AuthorizationManager`.
